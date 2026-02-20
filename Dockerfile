@@ -8,6 +8,8 @@ RUN npm ci
 
 COPY tsconfig.json ./
 COPY src/ ./src/
+COPY prisma/ ./prisma/
+RUN npx prisma generate
 
 RUN npm run build
 
@@ -22,7 +24,9 @@ COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
 EXPOSE 8080
 
-CMD ["node", "dist/server.js"]
+CMD ["sh", "-c", "npx prisma db push --skip-generate && node dist/server.js"]

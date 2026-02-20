@@ -35,7 +35,7 @@ export async function loadAgentConfig(agentId: string): Promise<AgentConfig | nu
 
   if (docs.length > 0) {
     const docsText = docs
-      .map((d) => `[${d.filename}]\n${d.content}`)
+      .map((d: { filename: string; content: string }) => `[${d.filename}]\n${d.content}`)
       .join('\n---\n');
     systemInstruction +=
       `\n\n--- BASE DE CONOCIMIENTO ---\n${docsText}\n--- FIN BASE DE CONOCIMIENTO ---`;

@@ -67,11 +67,11 @@ router.get('/metrics/summary', async (_req, res) => {
     ]);
 
     const totalDuration = completedSessions.reduce(
-      (sum, s) => sum + (s.durationSeconds ?? 0),
+      (sum: number, s: { durationSeconds: number | null }) => sum + (s.durationSeconds ?? 0),
       0,
     );
     const totalCost = completedSessions.reduce(
-      (sum, s) => sum + (s.estimatedCost ?? 0),
+      (sum: number, s: { estimatedCost: number | null }) => sum + (s.estimatedCost ?? 0),
       0,
     );
     const avgDuration =
@@ -80,7 +80,7 @@ router.get('/metrics/summary', async (_req, res) => {
         : 0;
 
     // Agrupar por agente
-    const agentMap = Object.fromEntries(agents.map((a) => [a.id, a.name]));
+    const agentMap = Object.fromEntries(agents.map((a: { id: string; name: string }) => [a.id, a.name]));
     const byAgent: Record<string, { name: string; calls: number; totalCost: number }> = {};
     for (const s of completedSessions) {
       if (!byAgent[s.agentId]) {
