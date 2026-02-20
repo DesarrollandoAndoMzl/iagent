@@ -37,12 +37,24 @@ router.get('/agents/:id', async (req, res) => {
 
 // POST /api/agents — crear agente
 router.post('/agents', async (req, res) => {
-  const { name, description, systemPrompt, voiceName, language } = req.body as {
+  const {
+    name, description, systemPrompt, voiceName, language,
+    temperature, topP, topK, maxOutputTokens,
+    enableAffectiveDialog, enableProactiveAudio, thinkingBudget, vadSensitivity,
+  } = req.body as {
     name?: string;
     description?: string;
     systemPrompt?: string;
     voiceName?: string;
     language?: string;
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+    maxOutputTokens?: number;
+    enableAffectiveDialog?: boolean;
+    enableProactiveAudio?: boolean;
+    thinkingBudget?: number;
+    vadSensitivity?: string;
   };
 
   if (!name) {
@@ -58,6 +70,14 @@ router.post('/agents', async (req, res) => {
         systemPrompt: systemPrompt ?? 'Eres un asistente útil.',
         voiceName: voiceName ?? 'Kore',
         language: language ?? 'es',
+        ...(temperature !== undefined && { temperature }),
+        ...(topP !== undefined && { topP }),
+        ...(topK !== undefined && { topK }),
+        ...(maxOutputTokens !== undefined && { maxOutputTokens }),
+        ...(enableAffectiveDialog !== undefined && { enableAffectiveDialog }),
+        ...(enableProactiveAudio !== undefined && { enableProactiveAudio }),
+        ...(thinkingBudget !== undefined && { thinkingBudget }),
+        ...(vadSensitivity !== undefined && { vadSensitivity }),
       },
     });
     res.status(201).json(agent);
@@ -69,13 +89,25 @@ router.post('/agents', async (req, res) => {
 
 // PUT /api/agents/:id — actualizar agente
 router.put('/agents/:id', async (req, res) => {
-  const { name, description, systemPrompt, voiceName, language, isActive } = req.body as {
+  const {
+    name, description, systemPrompt, voiceName, language, isActive,
+    temperature, topP, topK, maxOutputTokens,
+    enableAffectiveDialog, enableProactiveAudio, thinkingBudget, vadSensitivity,
+  } = req.body as {
     name?: string;
     description?: string;
     systemPrompt?: string;
     voiceName?: string;
     language?: string;
     isActive?: boolean;
+    temperature?: number;
+    topP?: number;
+    topK?: number;
+    maxOutputTokens?: number;
+    enableAffectiveDialog?: boolean;
+    enableProactiveAudio?: boolean;
+    thinkingBudget?: number;
+    vadSensitivity?: string;
   };
 
   try {
@@ -88,6 +120,14 @@ router.put('/agents/:id', async (req, res) => {
         ...(voiceName !== undefined && { voiceName }),
         ...(language !== undefined && { language }),
         ...(isActive !== undefined && { isActive }),
+        ...(temperature !== undefined && { temperature }),
+        ...(topP !== undefined && { topP }),
+        ...(topK !== undefined && { topK }),
+        ...(maxOutputTokens !== undefined && { maxOutputTokens }),
+        ...(enableAffectiveDialog !== undefined && { enableAffectiveDialog }),
+        ...(enableProactiveAudio !== undefined && { enableProactiveAudio }),
+        ...(thinkingBudget !== undefined && { thinkingBudget }),
+        ...(vadSensitivity !== undefined && { vadSensitivity }),
       },
     });
     res.json(agent);

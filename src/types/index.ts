@@ -56,6 +56,17 @@ export interface AgentConfig {
   name: string;
   systemInstruction: string;
   voiceName: string;
+  language: string;
+  // Generation params
+  temperature: number;
+  topP: number;
+  topK: number;
+  maxOutputTokens: number;
+  // Session features
+  enableAffectiveDialog: boolean;
+  enableProactiveAudio: boolean;
+  thinkingBudget: number;
+  vadSensitivity: string;
   /** Frecuencia de muestreo de audio de entrada en Hz (default: 16000) */
   inputSampleRate?: number;
 }

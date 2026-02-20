@@ -9,7 +9,10 @@
       "Bash(powershell -Command \"Test-Path ''D:\\\\DESARROLLANDO\\\\voice-agent-backend\\\\node_modules\\\\mysql2\\\\node_modules''\")",
       "Bash(powershell -Command \"Remove-Item -Path ''D:\\\\DESARROLLANDO\\\\voice-agent-backend\\\\node_modules'' -Recurse -Force; Write-Host ''node_modules deleted''\")",
       "Bash(npx prisma generate:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(npx prisma db push:*)",
+      "Bash(ls:*)",
+      "Bash(DATABASE_URL=\"postgresql://x:x@localhost:5432/x\" npx prisma generate:*)"
     ]
   }
 }

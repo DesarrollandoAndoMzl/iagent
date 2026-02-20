@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality } from '@google/genai';
+import { GoogleGenAI, Modality, StartSensitivity, EndSensitivity } from '@google/genai';
 import type { LiveServerMessage } from '@google/genai';
 import WebSocket from 'ws';
 
@@ -46,6 +46,15 @@ export async function loadAgentConfig(agentId: string): Promise<AgentConfig | nu
     name: agent.name,
     systemInstruction,
     voiceName: agent.voiceName,
+    language: agent.language,
+    temperature: agent.temperature,
+    topP: agent.topP,
+    topK: agent.topK,
+    maxOutputTokens: agent.maxOutputTokens,
+    enableAffectiveDialog: agent.enableAffectiveDialog,
+    enableProactiveAudio: agent.enableProactiveAudio,
+    thinkingBudget: agent.thinkingBudget,
+    vadSensitivity: agent.vadSensitivity,
     inputSampleRate: 16000,
   };
 }
@@ -70,12 +79,51 @@ export async function createGeminiBridge(
     }
   };
 
+  // ── Construir system prompt (con sufijo de idioma si aplica) ─────────────────
+  let systemPromptText = agentConfig.systemInstruction;
+  if (agentConfig.language === 'es') {
+    systemPromptText +=
+      '\n\nIMPORTANTE: RESPONDE EN ESPAÑOL. DEBES RESPONDER INEQUÍVOCAMENTE EN ESPAÑOL.';
+  }
+  console.log('[Gemini] System prompt:', systemPromptText.substring(0, 100));
+
+  // ── Mapear vadSensitivity → enums del SDK ────────────────────────────────────
+  const isHighVad = agentConfig.vadSensitivity === 'high';
+  const startSensitivity = isHighVad
+    ? StartSensitivity.START_SENSITIVITY_HIGH
+    : StartSensitivity.START_SENSITIVITY_LOW;
+  const endSensitivity = isHighVad
+    ? EndSensitivity.END_SENSITIVITY_HIGH
+    : EndSensitivity.END_SENSITIVITY_LOW;
+
   // ── Conectar con Gemini Live API ──────────────────────────────────────────────
   const session = await ai.live.connect({
     model: LIVE_MODEL,
     config: {
       responseModalities: [Modality.AUDIO],
-      systemInstruction: agentConfig.systemInstruction,
+      systemInstruction: { parts: [{ text: systemPromptText }] },
+      // Generation params
+      temperature: agentConfig.temperature,
+      topP: agentConfig.topP,
+      topK: agentConfig.topK,
+      maxOutputTokens: agentConfig.maxOutputTokens,
+      // Thinking (solo si está habilitado)
+      ...(agentConfig.thinkingBudget > 0 && {
+        thinkingConfig: { thinkingBudget: agentConfig.thinkingBudget },
+      }),
+      // Session features
+      enableAffectiveDialog: agentConfig.enableAffectiveDialog,
+      proactivity: { proactiveAudio: agentConfig.enableProactiveAudio },
+      // VAD
+      realtimeInputConfig: {
+        automaticActivityDetection: {
+          startOfSpeechSensitivity: startSensitivity,
+          endOfSpeechSensitivity: endSensitivity,
+        },
+      },
+      // Transcripciones
+      inputAudioTranscription: {},
+      outputAudioTranscription: {},
       speechConfig: {
         voiceConfig: {
           prebuiltVoiceConfig: {

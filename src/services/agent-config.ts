@@ -10,6 +10,15 @@ const agentRegistry: Record<string, AgentConfig> = {
     systemInstruction:
       'Eres un asistente de voz amigable y útil. Respondes en español de forma concisa y natural.',
     voiceName: 'Kore',
+    language: 'es',
+    temperature: 0.7,
+    topP: 0.95,
+    topK: 40,
+    maxOutputTokens: 1000,
+    enableAffectiveDialog: true,
+    enableProactiveAudio: false,
+    thinkingBudget: 0,
+    vadSensitivity: 'low',
     inputSampleRate: 16000,
   },
 

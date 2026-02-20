@@ -10,6 +10,7 @@ import { prisma } from './lib/prisma';
 import agentsRouter from './routes/agents';
 import knowledgeRouter from './routes/knowledge';
 import metricsRouter from './routes/metrics';
+import ttsRouter from './routes/tts';
 
 // ── Asegurar directorio de uploads ──────────────────────────────────────────────
 const UPLOAD_DIR = '/tmp/uploads';
@@ -29,6 +30,7 @@ app.use(express.json());
 app.use('/api', agentsRouter);
 app.use('/api', knowledgeRouter);
 app.use('/api', metricsRouter);
+app.use('/api', ttsRouter);
 
 // Health check
 app.get('/health', async (_req, res) => {

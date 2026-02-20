@@ -18,6 +18,20 @@ model Agent {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // Gemini generation params
+  temperature     Float   @default(0.7)
+  topP            Float   @default(0.95)
+  topK            Int     @default(40)
+  maxOutputTokens Int     @default(1000)
+
+  // Gemini Live session features
+  enableAffectiveDialog Boolean @default(true)
+  enableProactiveAudio  Boolean @default(false)
+  thinkingBudget        Int     @default(0)
+
+  // VAD: "low" | "high"
+  vadSensitivity String @default("low")
+
   knowledgeDocs KnowledgeDoc[]
   callSessions  CallSession[]
 }
