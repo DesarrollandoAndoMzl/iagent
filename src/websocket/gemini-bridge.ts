@@ -9,7 +9,7 @@ import type { AgentConfig, GeminiBridge, ServerMessage } from '../types';
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 
 // ── Modelo usado para Native Audio ─────────────────────────────────────────────
-const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview';
+const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 
 /**
  * Crea un puente bidireccional entre el cliente WebSocket y la Gemini Live API.
