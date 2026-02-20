@@ -1,9 +1,18 @@
 import WebSocket from 'ws';
 import type { IncomingMessage } from 'http';
 
-import { getAgentConfig } from '../services/agent-config';
-import { createGeminiBridge } from './gemini-bridge';
+import { loadAgentConfig, createGeminiBridge } from './gemini-bridge';
+import { prisma } from '../lib/prisma';
 import type { ClientMessage, GeminiBridge } from '../types';
+
+// Costo estimado por minuto de audio (USD)
+const COST_PER_MINUTE = 0.075;
+
+interface TranscriptionEntry {
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp: string;
+}
 
 /**
  * Gestiona el ciclo de vida completo de una conexión WebSocket de un cliente.
@@ -21,6 +30,9 @@ export function handleWebSocketConnection(
   console.log(`[WS] Client connected | ip=${clientIp}`);
 
   let bridge: GeminiBridge | null = null;
+  let callSessionId: string | null = null;
+  let sessionStartTime: Date | null = null;
+  const transcription: TranscriptionEntry[] = [];
 
   // ── Recepción de mensajes ───────────────────────────────────────────────────
   ws.on('message', async (rawData: WebSocket.RawData) => {
@@ -39,8 +51,8 @@ export function handleWebSocketConnection(
       // ── Iniciar sesión con Gemini ───────────────────────────────────────────
       case 'start_session': {
         const agentId = message.agentId ?? 'default';
-        const agentConfig = getAgentConfig(agentId);
 
+        const agentConfig = await loadAgentConfig(agentId);
         if (!agentConfig) {
           sendError(ws, `Agent "${agentId}" not found`);
           return;
@@ -49,12 +61,22 @@ export function handleWebSocketConnection(
         // Cerrar sesión previa si existía
         if (bridge) {
           console.log(`[WS] Closing previous session before starting new one`);
-          bridge.close();
+          await closeSession(bridge, callSessionId, sessionStartTime, transcription);
           bridge = null;
+          callSessionId = null;
+          sessionStartTime = null;
+          transcription.length = 0;
         }
 
         try {
-          console.log(`[WS] Starting session | agent=${agentId}`);
+          // Crear registro CallSession en DB
+          const callSession = await prisma.callSession.create({
+            data: { agentId, status: 'active' },
+          });
+          callSessionId = callSession.id;
+          sessionStartTime = new Date();
+
+          console.log(`[WS] Starting session | agent=${agentId} session=${callSessionId}`);
           bridge = await createGeminiBridge(ws, agentConfig);
         } catch (err) {
           console.error('[WS] Failed to create Gemini bridge:', err);
@@ -80,8 +102,11 @@ export function handleWebSocketConnection(
       // ── Finalizar sesión ────────────────────────────────────────────────────
       case 'end_session': {
         if (bridge) {
-          bridge.close();
+          await closeSession(bridge, callSessionId, sessionStartTime, transcription);
           bridge = null;
+          callSessionId = null;
+          sessionStartTime = null;
+          transcription.length = 0;
         }
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'session_ended' }));
@@ -96,27 +121,63 @@ export function handleWebSocketConnection(
   });
 
   // ── Cliente desconectado ────────────────────────────────────────────────────
-  ws.on('close', (code, reason) => {
+  ws.on('close', async (code, reason) => {
     console.log(
       `[WS] Client disconnected | ip=${clientIp} code=${code} reason=${reason.toString()}`,
     );
     if (bridge) {
-      bridge.close();
+      await closeSession(bridge, callSessionId, sessionStartTime, transcription);
       bridge = null;
     }
   });
 
   // ── Error de transporte ─────────────────────────────────────────────────────
-  ws.on('error', (err) => {
+  ws.on('error', async (err) => {
     console.error(`[WS] Socket error | ip=${clientIp}:`, err.message);
     if (bridge) {
-      bridge.close();
+      await closeSession(bridge, callSessionId, sessionStartTime, transcription, 'error');
       bridge = null;
     }
   });
 }
 
-// ── Helper ──────────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────────
+
+async function closeSession(
+  bridge: GeminiBridge,
+  callSessionId: string | null,
+  startTime: Date | null,
+  transcription: TranscriptionEntry[],
+  status: 'completed' | 'error' = 'completed',
+): Promise<void> {
+  bridge.close();
+
+  if (!callSessionId) return;
+
+  const endedAt = new Date();
+  const durationSeconds =
+    startTime ? Math.round((endedAt.getTime() - startTime.getTime()) / 1000) : 0;
+  const estimatedCost = Math.round((durationSeconds / 60) * COST_PER_MINUTE * 10000) / 10000;
+
+  try {
+    await prisma.callSession.update({
+      where: { id: callSessionId },
+      data: {
+        endedAt,
+        durationSeconds,
+        estimatedCost,
+        status,
+        transcription: transcription.length > 0 ? JSON.stringify(transcription) : null,
+      },
+    });
+    console.log(
+      `[WS] Session ${callSessionId} saved | duration=${durationSeconds}s cost=$${estimatedCost}`,
+    );
+  } catch (err) {
+    console.error('[WS] Failed to update CallSession:', err);
+  }
+}
+
 function sendError(ws: WebSocket, message: string): void {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'error', message }));

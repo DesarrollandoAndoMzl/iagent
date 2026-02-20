@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Agent {
+  id           String   @id @default(uuid())
+  name         String
+  description  String?
+  systemPrompt String   @default("Eres un asistente útil.")
+  voiceName    String   @default("Kore")
+  language     String   @default("es")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  knowledgeDocs KnowledgeDoc[]
+  callSessions  CallSession[]
+}
+
+model KnowledgeDoc {
+  id        String   @id @default(uuid())
+  filename  String
+  content   String
+  fileUrl   String?
+  isGlobal  Boolean  @default(false)
+  agentId   String?
+  agent     Agent?   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model CallSession {
+  id              String    @id @default(uuid())
+  agentId         String
+  agent           Agent     @relation(fields: [agentId], references: [id])
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  durationSeconds Int?
+  transcription   String?
+  recordingUrl    String?
+  tokenCount      Int?      @default(0)
+  estimatedCost   Float?    @default(0)
+  status          String    @default("active")
+  metadata        String?
+  createdAt       DateTime  @default(now())
+}

@@ -3,6 +3,7 @@ import type { LiveServerMessage } from '@google/genai';
 import WebSocket from 'ws';
 
 import { config } from '../config';
+import { prisma } from '../lib/prisma';
 import type { AgentConfig, GeminiBridge, ServerMessage } from '../types';
 
 // ── Cliente Gemini (singleton por proceso) ──────────────────────────────────────
@@ -10,6 +11,44 @@ const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 
 // ── Modelo usado para Native Audio ─────────────────────────────────────────────
 const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
+
+/**
+ * Carga la configuración del agente desde la DB, incluyendo documentos de
+ * conocimiento globales y propios del agente, y devuelve un AgentConfig listo
+ * para usar en Gemini.
+ */
+export async function loadAgentConfig(agentId: string): Promise<AgentConfig | null> {
+  const agent = await prisma.agent.findUnique({
+    where: { id: agentId, isActive: true },
+  });
+
+  if (!agent) return null;
+
+  // Obtener documentos de conocimiento: globales + propios del agente
+  const docs = await prisma.knowledgeDoc.findMany({
+    where: {
+      OR: [{ isGlobal: true }, { agentId }],
+    },
+  });
+
+  let systemInstruction = agent.systemPrompt;
+
+  if (docs.length > 0) {
+    const docsText = docs
+      .map((d) => `[${d.filename}]\n${d.content}`)
+      .join('\n---\n');
+    systemInstruction +=
+      `\n\n--- BASE DE CONOCIMIENTO ---\n${docsText}\n--- FIN BASE DE CONOCIMIENTO ---`;
+  }
+
+  return {
+    id: agent.id,
+    name: agent.name,
+    systemInstruction,
+    voiceName: agent.voiceName,
+    inputSampleRate: 16000,
+  };
+}
 
 /**
  * Crea un puente bidireccional entre el cliente WebSocket y la Gemini Live API.

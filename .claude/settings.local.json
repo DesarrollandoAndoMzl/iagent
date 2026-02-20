@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(npm install)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npm install:*)",
+      "Bash(cmd /c \"cd /d D:\\\\DESARROLLANDO\\\\voice-agent-backend && takeown /f node_modules\\\\mysql2 /r /d y 2>nul & icacls node_modules\\\\mysql2 /grant %USERNAME%:F /t /q 2>nul & rmdir /s /q node_modules\\\\mysql2 2>nul & rmdir /s /q node_modules\\\\nypm 2>nul & rmdir /s /q node_modules\\\\proper-lockfile 2>nul & echo Done\")",
+      "Bash(powershell -Command \"Remove-Item -Path ''D:\\\\DESARROLLANDO\\\\voice-agent-backend\\\\node_modules\\\\mysql2'' -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path ''D:\\\\DESARROLLANDO\\\\voice-agent-backend\\\\node_modules\\\\nypm'' -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path ''D:\\\\DESARROLLANDO\\\\voice-agent-backend\\\\node_modules\\\\proper-lockfile'' -Recurse -Force -ErrorAction SilentlyContinue; Write-Host ''Done''\")",
+      "Bash(powershell -Command \"Test-Path ''D:\\\\DESARROLLANDO\\\\voice-agent-backend\\\\node_modules\\\\mysql2\\\\node_modules''\")",
+      "Bash(powershell -Command \"Remove-Item -Path ''D:\\\\DESARROLLANDO\\\\voice-agent-backend\\\\node_modules'' -Recurse -Force; Write-Host ''node_modules deleted''\")",
+      "Bash(npx prisma generate:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }
