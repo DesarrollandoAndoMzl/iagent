@@ -121,8 +121,6 @@ export async function createGeminiBridge(
       ...(agentConfig.thinkingBudget > 0 && {
         thinkingConfig: { thinkingBudget: agentConfig.thinkingBudget },
       }),
-      // Diálogo afectivo
-      enableAffectiveDialog: agentConfig.enableAffectiveDialog,
       // Proactividad de audio
       proactivity: {
         proactiveAudio: agentConfig.enableProactiveAudio,
