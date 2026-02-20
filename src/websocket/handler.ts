@@ -50,7 +50,20 @@ export function handleWebSocketConnection(
     switch (message.type) {
       // ── Iniciar sesión con Gemini ───────────────────────────────────────────
       case 'start_session': {
-        const agentId = message.agentId ?? 'default';
+        // Si no se envía agentId, usar el primer agente activo de la DB
+        let agentId = message.agentId;
+        if (!agentId) {
+          const firstAgent = await prisma.agent.findFirst({
+            where: { isActive: true },
+            orderBy: { createdAt: 'asc' },
+            select: { id: true },
+          });
+          if (!firstAgent) {
+            sendError(ws, 'No active agents found');
+            return;
+          }
+          agentId = firstAgent.id;
+        }
 
         const agentConfig = await loadAgentConfig(agentId);
         if (!agentConfig) {

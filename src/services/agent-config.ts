@@ -1,42 +1,4 @@
-import type { AgentConfig } from '../types';
-
-// ── Registro de agentes ─────────────────────────────────────────────────────────
-// Por ahora hardcoded; en el futuro puede cargarse desde DB o CMS.
-
-const agentRegistry: Record<string, AgentConfig> = {
-  default: {
-    id: 'default',
-    name: 'Asistente de Voz',
-    systemInstruction:
-      'Eres un asistente de voz amigable y útil. Respondes en español de forma concisa y natural.',
-    voiceName: 'Kore',
-    language: 'es',
-    temperature: 0.7,
-    topP: 0.95,
-    topK: 40,
-    maxOutputTokens: 1000,
-    enableAffectiveDialog: true,
-    enableProactiveAudio: false,
-    thinkingBudget: 0,
-    vadSensitivity: 'low',
-    inputSampleRate: 16000,
-  },
-
-  // Ejemplo de agente adicional (descomentar para activar):
-  // soporte: {
-  //   id: 'soporte',
-  //   name: 'Agente de Soporte',
-  //   systemInstruction:
-  //     'Eres un agente de soporte técnico especializado. Ayudas a los usuarios a resolver problemas de manera empática y efectiva.',
-  //   voiceName: 'Aoede',
-  //   inputSampleRate: 16000,
-  // },
-};
-
-export function getAgentConfig(agentId: string): AgentConfig | null {
-  return agentRegistry[agentId] ?? null;
-}
-
-export function listAgentIds(): string[] {
-  return Object.keys(agentRegistry);
-}
+// Este módulo fue reemplazado por loadAgentConfig en src/websocket/gemini-bridge.ts
+// que carga la configuración directamente desde la base de datos.
+// Se mantiene solo para no romper posibles importaciones futuras.
+export {};

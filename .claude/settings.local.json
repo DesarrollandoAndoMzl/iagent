@@ -12,7 +12,8 @@
       "Bash(npx tsc:*)",
       "Bash(npx prisma db push:*)",
       "Bash(ls:*)",
-      "Bash(DATABASE_URL=\"postgresql://x:x@localhost:5432/x\" npx prisma generate:*)"
+      "Bash(DATABASE_URL=\"postgresql://x:x@localhost:5432/x\" npx prisma generate:*)",
+      "Bash(git -C \"D:/DESARROLLANDO/voice-agent-backend\" log --oneline -n 15)"
     ]
   }
 }
