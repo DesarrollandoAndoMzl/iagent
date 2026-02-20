@@ -1,0 +1,25 @@
+{
+  "name": "voice-agent-backend",
+  "version": "1.0.0",
+  "description": "Backend for voice agent platform using Gemini Native Audio",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.12.0",
+    "@types/ws": "^8.5.12",
+    "tsx": "^4.7.2",
+    "typescript": "^5.4.3"
+  }
+}

@@ -1,0 +1,121 @@
+import { GoogleGenAI, Modality } from '@google/genai';
+import type { LiveServerMessage } from '@google/genai';
+import WebSocket from 'ws';
+
+import { config } from '../config';
+import type { AgentConfig, GeminiBridge, ServerMessage } from '../types';
+
+// ── Cliente Gemini (singleton por proceso) ──────────────────────────────────────
+const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
+
+// ── Modelo usado para Native Audio ─────────────────────────────────────────────
+const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview';
+
+/**
+ * Crea un puente bidireccional entre el cliente WebSocket y la Gemini Live API.
+ *
+ * Flujo de audio:
+ *   Cliente (PCM 16 kHz base64) → sendAudio() → Gemini Live API
+ *   Gemini Live API             → onmessage()  → Cliente (PCM base64)
+ */
+export async function createGeminiBridge(
+  clientWs: WebSocket,
+  agentConfig: AgentConfig,
+): Promise<GeminiBridge> {
+  let isClosed = false;
+
+  // Helper: envía un mensaje JSON al cliente si la conexión sigue abierta
+  const sendToClient = (msg: ServerMessage): void => {
+    if (clientWs.readyState === WebSocket.OPEN) {
+      clientWs.send(JSON.stringify(msg));
+    }
+  };
+
+  // ── Conectar con Gemini Live API ──────────────────────────────────────────────
+  const session = await ai.live.connect({
+    model: LIVE_MODEL,
+    config: {
+      responseModalities: [Modality.AUDIO],
+      systemInstruction: agentConfig.systemInstruction,
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: {
+            voiceName: agentConfig.voiceName,
+          },
+        },
+      },
+    },
+    callbacks: {
+      onopen(): void {
+        console.log(
+          `[Gemini] Session opened | agent=${agentConfig.id} voice=${agentConfig.voiceName}`,
+        );
+        sendToClient({ type: 'session_started', agentId: agentConfig.id });
+      },
+
+      onmessage(message: LiveServerMessage): void {
+        // Audio generado por Gemini
+        const parts = message.serverContent?.modelTurn?.parts ?? [];
+        for (const part of parts) {
+          if (part.inlineData?.data) {
+            sendToClient({
+              type: 'audio',
+              data: part.inlineData.data,
+              mimeType: part.inlineData.mimeType ?? 'audio/pcm;rate=24000',
+            });
+          }
+        }
+
+        // Señal de fin de turno (Gemini terminó de hablar)
+        if (message.serverContent?.turnComplete) {
+          sendToClient({ type: 'turn_complete' });
+        }
+      },
+
+      onerror(error: ErrorEvent): void {
+        console.error('[Gemini] Session error:', error.message ?? error);
+        sendToClient({ type: 'error', message: 'Gemini session error' });
+      },
+
+      onclose(event: CloseEvent): void {
+        console.log(`[Gemini] Session closed | code=${event.code} reason=${event.reason}`);
+        if (!isClosed) {
+          sendToClient({ type: 'session_ended' });
+        }
+      },
+    },
+  });
+
+  // ── API pública del bridge ────────────────────────────────────────────────────
+  return {
+    /**
+     * Reenvía un chunk de audio PCM (base64) a Gemini.
+     * El audio debe ser PCM 16-bit mono a la frecuencia indicada en agentConfig.inputSampleRate.
+     */
+    sendAudio(base64Data: string): void {
+      if (isClosed) return;
+      const sampleRate = agentConfig.inputSampleRate ?? 16000;
+      try {
+        session.sendRealtimeInput({
+          audio: {
+            data: base64Data,
+            mimeType: `audio/pcm;rate=${sampleRate}`,
+          },
+        });
+      } catch (err) {
+        console.error('[Gemini] Error sending audio chunk:', err);
+      }
+    },
+
+    /** Cierra la sesión Gemini limpiamente. */
+    close(): void {
+      if (isClosed) return;
+      isClosed = true;
+      try {
+        session.close();
+      } catch (err) {
+        console.error('[Gemini] Error closing session:', err);
+      }
+    },
+  };
+}
