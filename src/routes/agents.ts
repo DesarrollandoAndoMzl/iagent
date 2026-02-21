@@ -110,6 +110,8 @@ router.put('/agents/:id', async (req, res) => {
     vadSensitivity?: string;
   };
 
+  console.log('[Agent] PUT update:', req.params.id, req.body);
+
   try {
     const agent = await prisma.agent.update({
       where: { id: req.params.id },

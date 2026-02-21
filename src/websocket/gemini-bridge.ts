@@ -88,28 +88,32 @@ export async function createGeminiBridge(
   console.log('[Gemini] System prompt:', systemPromptText.substring(0, 100));
 
   // ── Conectar con Gemini Live API ──────────────────────────────────────────────
-  const session = await ai.live.connect({
-    model: LIVE_MODEL,
-    config: {
-      responseModalities: [Modality.AUDIO],
-      systemInstruction: { parts: [{ text: systemPromptText }] },
-      // Transcripciones
-      inputAudioTranscription: {},
-      outputAudioTranscription: {},
-      // Voz
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName: agentConfig.voiceName,
-          },
+  const liveConfig = {
+    responseModalities: [Modality.AUDIO],
+    systemInstruction: { parts: [{ text: systemPromptText }] },
+    // Transcripciones
+    inputAudioTranscription: {},
+    outputAudioTranscription: {},
+    // Voz
+    speechConfig: {
+      voiceConfig: {
+        prebuiltVoiceConfig: {
+          voiceName: agentConfig.voiceName,
         },
       },
-      // Parámetros de generación
-      temperature: agentConfig.temperature,
-      topP: agentConfig.topP,
-      topK: agentConfig.topK,
-      maxOutputTokens: agentConfig.maxOutputTokens,
     },
+    // Parámetros de generación
+    temperature: agentConfig.temperature,
+    topP: agentConfig.topP,
+    topK: agentConfig.topK,
+    maxOutputTokens: agentConfig.maxOutputTokens,
+  };
+
+  console.log('[Gemini] Full config:', JSON.stringify(liveConfig, null, 2));
+
+  const session = await ai.live.connect({
+    model: LIVE_MODEL,
+    config: liveConfig,
     callbacks: {
       onopen(): void {
         console.log(

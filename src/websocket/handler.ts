@@ -65,11 +65,14 @@ export function handleWebSocketConnection(
           agentId = firstAgent.id;
         }
 
+        console.log('[Handler] Loading agent:', agentId);
         const agentConfig = await loadAgentConfig(agentId);
         if (!agentConfig) {
+          console.error('[Handler] Agent not found in DB:', agentId);
           sendError(ws, `Agent "${agentId}" not found`);
           return;
         }
+        console.log('[Handler] Agent loaded:', JSON.stringify(agentConfig));
 
         // Cerrar sesión previa si existía
         if (bridge) {
