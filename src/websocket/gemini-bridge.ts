@@ -85,7 +85,7 @@ export async function createGeminiBridge(
     systemPromptText +=
       '\n\nIMPORTANTE: RESPONDE EN ESPAÑOL. DEBES RESPONDER INEQUÍVOCAMENTE EN ESPAÑOL.';
   }
-  console.log('[Gemini] System prompt:', systemPromptText.substring(0, 100));
+  console.log('[Gemini] System prompt (full):', systemPromptText);
 
   // ── Conectar con Gemini Live API ──────────────────────────────────────────────
   const liveConfig = {

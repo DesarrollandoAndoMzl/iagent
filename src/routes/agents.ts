@@ -38,14 +38,12 @@ router.get('/agents/:id', async (req, res) => {
 // POST /api/agents — crear agente
 router.post('/agents', async (req, res) => {
   const {
-    name, description, systemPrompt, voiceName, language,
+    name, description, language,
     temperature, topP, topK, maxOutputTokens,
     enableAffectiveDialog, enableProactiveAudio, thinkingBudget, vadSensitivity,
   } = req.body as {
     name?: string;
     description?: string;
-    systemPrompt?: string;
-    voiceName?: string;
     language?: string;
     temperature?: number;
     topP?: number;
@@ -56,6 +54,10 @@ router.post('/agents', async (req, res) => {
     thinkingBudget?: number;
     vadSensitivity?: string;
   };
+
+  const systemPrompt = req.body.systemPrompt || req.body.system_prompt;
+  const voiceName = req.body.voiceName || req.body.voice;
+  console.log('[Agent] Mapped fields:', { systemPrompt, voiceName });
 
   if (!name) {
     res.status(400).json({ error: '"name" is required' });
@@ -90,14 +92,12 @@ router.post('/agents', async (req, res) => {
 // PUT /api/agents/:id — actualizar agente
 router.put('/agents/:id', async (req, res) => {
   const {
-    name, description, systemPrompt, voiceName, language, isActive,
+    name, description, language, isActive,
     temperature, topP, topK, maxOutputTokens,
     enableAffectiveDialog, enableProactiveAudio, thinkingBudget, vadSensitivity,
   } = req.body as {
     name?: string;
     description?: string;
-    systemPrompt?: string;
-    voiceName?: string;
     language?: string;
     isActive?: boolean;
     temperature?: number;
@@ -110,7 +110,10 @@ router.put('/agents/:id', async (req, res) => {
     vadSensitivity?: string;
   };
 
+  const systemPrompt = req.body.systemPrompt || req.body.system_prompt;
+  const voiceName = req.body.voiceName || req.body.voice;
   console.log('[Agent] PUT update:', req.params.id, req.body);
+  console.log('[Agent] Mapped fields:', { systemPrompt, voiceName });
 
   try {
     const agent = await prisma.agent.update({
