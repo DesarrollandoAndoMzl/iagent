@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality, StartSensitivity, EndSensitivity } from '@google/genai';
+import { GoogleGenAI, Modality } from '@google/genai';
 import type { LiveServerMessage } from '@google/genai';
 import WebSocket from 'ws';
 
@@ -87,14 +87,6 @@ export async function createGeminiBridge(
   }
   console.log('[Gemini] System prompt:', systemPromptText.substring(0, 100));
 
-  // ── Mapear vadSensitivity al enum del SDK ────────────────────────────────────
-  const startSensitivity = agentConfig.vadSensitivity === 'high'
-    ? StartSensitivity.START_SENSITIVITY_HIGH
-    : StartSensitivity.START_SENSITIVITY_LOW;
-  const endSensitivity = agentConfig.vadSensitivity === 'high'
-    ? EndSensitivity.END_SENSITIVITY_HIGH
-    : EndSensitivity.END_SENSITIVITY_LOW;
-
   // ── Conectar con Gemini Live API ──────────────────────────────────────────────
   const session = await ai.live.connect({
     model: LIVE_MODEL,
@@ -117,21 +109,6 @@ export async function createGeminiBridge(
       topP: agentConfig.topP,
       topK: agentConfig.topK,
       maxOutputTokens: agentConfig.maxOutputTokens,
-      // Thinking budget (solo si > 0)
-      ...(agentConfig.thinkingBudget > 0 && {
-        thinkingConfig: { thinkingBudget: agentConfig.thinkingBudget },
-      }),
-      // Proactividad de audio
-      proactivity: {
-        proactiveAudio: agentConfig.enableProactiveAudio,
-      },
-      // Sensibilidad de detección de voz (VAD)
-      realtimeInputConfig: {
-        automaticActivityDetection: {
-          startOfSpeechSensitivity: startSensitivity,
-          endOfSpeechSensitivity: endSensitivity,
-        },
-      },
     },
     callbacks: {
       onopen(): void {
