@@ -111,7 +111,7 @@ export async function createGeminiBridge(
 
   console.log('[Gemini] Full config:', JSON.stringify(liveConfig, null, 2));
 
-  const session = await ai.live.connect({
+  let session = await ai.live.connect({
     model: LIVE_MODEL,
     config: liveConfig,
     callbacks: {
@@ -120,15 +120,6 @@ export async function createGeminiBridge(
           `[Gemini] Session opened | agent=${agentConfig.id} voice=${agentConfig.voiceName}`,
         );
         sendToClient({ type: 'session_started', agentId: agentConfig.id });
-        try {
-          session.sendClientContent({
-            turns: [{ role: 'user', parts: [{ text: 'Inicia la conversación ahora. Saluda al cliente.' }] }],
-            turnComplete: true,
-          });
-          console.log('[Gemini] Sent initial prompt to start conversation');
-        } catch (e) {
-          console.error('[Gemini] Error sending initial prompt:', e);
-        }
       },
 
       onmessage(message: LiveServerMessage): void {
@@ -163,6 +154,19 @@ export async function createGeminiBridge(
       },
     },
   });
+
+  // Enviar el prompt inicial DESPUÉS de que session esté asignada
+  setTimeout(() => {
+    try {
+      session.sendClientContent({
+        turns: [{ role: 'user', parts: [{ text: 'Inicia la conversación ahora. Saluda al cliente.' }] }],
+        turnComplete: true,
+      });
+      console.log('[Gemini] Sent initial prompt to start conversation');
+    } catch (e) {
+      console.error('[Gemini] Error sending initial prompt:', e);
+    }
+  }, 500);
 
   // ── API pública del bridge ────────────────────────────────────────────────────
   return {
