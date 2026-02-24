@@ -111,6 +111,8 @@ export async function createGeminiBridge(
 
   console.log('[Gemini] Full config:', JSON.stringify(liveConfig, null, 2));
 
+  let waitingForFirstResponse = true;
+
   let session = await ai.live.connect({
     model: LIVE_MODEL,
     config: liveConfig,
@@ -123,16 +125,21 @@ export async function createGeminiBridge(
       },
 
       onmessage(message: LiveServerMessage): void {
-        // Interrupción del usuario
-        if ((message as any).interrupted || message.serverContent?.interrupted) {
-          sendToClient({ type: 'interrupted' as any });
+        // Interrupción del usuario (patrón oficial Google)
+        if (message.serverContent && message.serverContent.interrupted) {
           console.log('[Gemini] User interrupted agent');
+          sendToClient({ type: 'interrupted' as any });
+          return;
         }
 
         // Audio generado por Gemini
         const parts = message.serverContent?.modelTurn?.parts ?? [];
         for (const part of parts) {
           if (part.inlineData?.data) {
+            if (waitingForFirstResponse) {
+              waitingForFirstResponse = false;
+              console.log('[Gemini] First response received, mic now active');
+            }
             sendToClient({
               type: 'audio',
               data: part.inlineData.data,
@@ -182,6 +189,10 @@ export async function createGeminiBridge(
      */
     sendAudio(base64Data: string): void {
       if (isClosed) return;
+      if (waitingForFirstResponse) {
+        console.log('[Gemini] Ignoring mic audio while waiting for first response');
+        return;
+      }
       const sampleRate = agentConfig.inputSampleRate ?? 16000;
       try {
         session.sendRealtimeInput({
