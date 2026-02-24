@@ -125,7 +125,7 @@ export async function createGeminiBridge(
       onmessage(message: LiveServerMessage): void {
         // Interrupción del usuario
         if ((message as any).interrupted || message.serverContent?.interrupted) {
-          sendToClient({ type: 'interrupted' });
+          sendToClient({ type: 'interrupted' as any });
           console.log('[Gemini] User interrupted agent');
         }
 
