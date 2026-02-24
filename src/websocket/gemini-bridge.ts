@@ -123,6 +123,12 @@ export async function createGeminiBridge(
       },
 
       onmessage(message: LiveServerMessage): void {
+        // Interrupción del usuario
+        if ((message as any).interrupted || message.serverContent?.interrupted) {
+          sendToClient({ type: 'interrupted' });
+          console.log('[Gemini] User interrupted agent');
+        }
+
         // Audio generado por Gemini
         const parts = message.serverContent?.modelTurn?.parts ?? [];
         for (const part of parts) {
