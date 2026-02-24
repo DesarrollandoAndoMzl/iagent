@@ -120,6 +120,8 @@ export async function createGeminiBridge(
           `[Gemini] Session opened | agent=${agentConfig.id} voice=${agentConfig.voiceName}`,
         );
         sendToClient({ type: 'session_started', agentId: agentConfig.id });
+        session.send({ text: 'Inicia la conversación ahora. Saluda al cliente.' });
+        console.log('[Gemini] Sent initial prompt to start conversation');
       },
 
       onmessage(message: LiveServerMessage): void {
