@@ -14,24 +14,53 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 
 const upload = multer({
   dest: UPLOAD_DIR,
-  fileFilter(_req, file, cb) {
-    const ext = path.extname(file.originalname).toLowerCase();
-    if (['.txt', '.md', '.pdf'].includes(ext)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only .txt, .md, and .pdf files are allowed'));
-    }
-  },
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
 });
 
-// Lee el contenido de texto de un archivo subido
-function extractContent(filePath: string, originalName: string): string {
+// Extensiones que se leen directamente como texto UTF-8
+const TEXT_EXTENSIONS = new Set([
+  '.txt', '.md', '.csv', '.json', '.yaml', '.yml',
+  '.html', '.htm', '.xml', '.log', '.rtf', '.tex',
+  '.js', '.ts', '.py', '.java', '.c', '.cpp', '.h',
+  '.css', '.scss', '.sql', '.sh', '.bat', '.env',
+]);
+
+async function extractContent(filePath: string, originalName: string): Promise<string> {
   const ext = path.extname(originalName).toLowerCase();
+
   if (ext === '.pdf') {
-    return `[PDF] ${originalName} — contenido pendiente de extracción`;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pdfParse = require('pdf-parse') as (buf: Buffer) => Promise<{ text: string }>;
+    const buffer = fs.readFileSync(filePath);
+    const data = await pdfParse(buffer);
+    return data.text || `[PDF] ${originalName} — sin texto extraíble`;
   }
-  return fs.readFileSync(filePath, 'utf-8');
+
+  if (ext === '.docx') {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mammoth = require('mammoth') as {
+      extractRawText: (opts: { path: string }) => Promise<{ value: string }>;
+    };
+    const result = await mammoth.extractRawText({ path: filePath });
+    return result.value || `[DOCX] ${originalName} — sin texto extraíble`;
+  }
+
+  if (TEXT_EXTENSIONS.has(ext)) {
+    return fs.readFileSync(filePath, 'utf-8');
+  }
+
+  // Intentar leer como texto; si falla, devolver mensaje informativo
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    // Descartar si contiene demasiados caracteres no imprimibles (binario)
+    const nonPrintable = (content.match(/[\x00-\x08\x0e-\x1f\x7f]/g) || []).length;
+    if (nonPrintable / content.length > 0.05) {
+      return `[${ext.toUpperCase() || 'BINARY'}] ${originalName} — archivo binario, contenido no extraíble como texto`;
+    }
+    return content;
+  } catch {
+    return `[${ext.toUpperCase() || 'FILE'}] ${originalName} — no fue posible extraer el contenido`;
+  }
 }
 
 // GET /api/knowledge/global — lista documentos globales
@@ -70,7 +99,7 @@ router.post('/knowledge/global', upload.single('file'), async (req, res) => {
   }
 
   try {
-    const content = extractContent(req.file.path, req.file.originalname);
+    const content = await extractContent(req.file.path, req.file.originalname);
     const doc = await prisma.knowledgeDoc.create({
       data: {
         filename: req.file.originalname,
@@ -102,7 +131,7 @@ router.post('/agents/:id/knowledge', upload.single('file'), async (req, res) => 
       return;
     }
 
-    const content = extractContent(req.file.path, req.file.originalname);
+    const content = await extractContent(req.file.path, req.file.originalname);
     const doc = await prisma.knowledgeDoc.create({
       data: {
         filename: req.file.originalname,
