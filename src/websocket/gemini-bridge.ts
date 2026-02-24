@@ -166,7 +166,7 @@ export async function createGeminiBridge(
     } catch (e) {
       console.error('[Gemini] Error sending initial prompt:', e);
     }
-  }, 500);
+  }, 100);
 
   // ── API pública del bridge ────────────────────────────────────────────────────
   return {
