@@ -118,9 +118,8 @@ export async function createGeminiBridge(
     config: liveConfig,
     callbacks: {
       onopen(): void {
-        console.log(
-          `[Gemini] Session opened | agent=${agentConfig.id} voice=${agentConfig.voiceName}`,
-        );
+        console.log('[Gemini] Session opened | time=' + Date.now());
+        console.log(`[Gemini] Session opened | agent=${agentConfig.id} voice=${agentConfig.voiceName}`);
         sendToClient({ type: 'session_started', agentId: agentConfig.id });
       },
 
@@ -138,7 +137,9 @@ export async function createGeminiBridge(
         if (sc && sc.modelTurn && sc.modelTurn.parts) {
           for (const part of sc.modelTurn.parts) {
             if (part.inlineData && part.inlineData.data) {
-              if (audioChunkCount++ % 50 === 0) console.log('[Gemini] Audio chunks received:', audioChunkCount);
+              audioChunkCount++;
+              if (audioChunkCount === 1) console.log('[Gemini] First audio chunk | time=' + Date.now());
+              if (audioChunkCount % 50 === 0) console.log('[Gemini] Audio chunks received:', audioChunkCount);
               sendToClient({
                 type: 'audio',
                 audio: part.inlineData.data,
@@ -177,18 +178,29 @@ export async function createGeminiBridge(
     },
   });
 
-  // Enviar silencio para activar la sesión y que Gemini empiece a hablar
+  // Trigger 1: Enviar texto para que Gemini responda inmediatamente
   try {
-    const silenceBuffer = Buffer.alloc(3200).toString('base64'); // 100ms de silencio PCM 16kHz
+    session.sendClientContent({
+      turns: [{ role: 'user', parts: [{ text: '.' }] }],
+      turnComplete: true,
+    });
+    console.log('[Gemini] Sent text trigger for initial greeting');
+  } catch (e) {
+    console.error('[Gemini] Error sending text trigger:', e);
+  }
+
+  // Trigger 2: Enviar silencio para activar el canal de audio
+  try {
+    const silenceBuffer = Buffer.alloc(3200).toString('base64');
     session.sendRealtimeInput({
       audio: {
         data: silenceBuffer,
         mimeType: 'audio/pcm;rate=16000',
       },
     });
-    console.log('[Gemini] Sent silence buffer to trigger initial greeting');
+    console.log('[Gemini] Sent silence buffer');
   } catch (e) {
-    console.error('[Gemini] Error sending silence buffer:', e);
+    console.error('[Gemini] Error sending silence:', e);
   }
 
   // ── API pública del bridge ────────────────────────────────────────────────────
