@@ -25,12 +25,25 @@ export interface SessionStartedMessage {
 
 export interface AudioOutputMessage {
   type: 'audio';
-  data: string;    // PCM codificado en base64
-  mimeType: string; // e.g. "audio/pcm;rate=24000"
+  audio: string; // PCM codificado en base64
 }
 
 export interface TurnCompleteMessage {
   type: 'turn_complete';
+}
+
+export interface InterruptedMessage {
+  type: 'interrupted';
+}
+
+export interface TranscriptInputMessage {
+  type: 'transcript_input';
+  text: string;
+}
+
+export interface TranscriptOutputMessage {
+  type: 'transcript_output';
+  text: string;
 }
 
 export interface SessionEndedMessage {
@@ -46,6 +59,9 @@ export type ServerMessage =
   | SessionStartedMessage
   | AudioOutputMessage
   | TurnCompleteMessage
+  | InterruptedMessage
+  | TranscriptInputMessage
+  | TranscriptOutputMessage
   | SessionEndedMessage
   | ErrorMessage;
 

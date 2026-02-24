@@ -111,9 +111,7 @@ export async function createGeminiBridge(
 
   console.log('[Gemini] Full config:', JSON.stringify(liveConfig, null, 2));
 
-  let waitingForFirstResponse = true;
-
-  let session = await ai.live.connect({
+  const session = await ai.live.connect({
     model: LIVE_MODEL,
     config: liveConfig,
     callbacks: {
@@ -125,31 +123,40 @@ export async function createGeminiBridge(
       },
 
       onmessage(message: LiveServerMessage): void {
-        // Interrupción del usuario (patrón oficial Google)
-        if (message.serverContent && message.serverContent.interrupted) {
-          console.log('[Gemini] User interrupted agent');
-          sendToClient({ type: 'interrupted' as any });
+        const sc = message.serverContent;
+
+        // Interrupción del agente por el usuario (patrón oficial Google)
+        if (sc && sc.interrupted === true) {
+          console.log('[Gemini] Agent interrupted by user');
+          sendToClient({ type: 'interrupted' });
           return;
         }
 
         // Audio generado por Gemini
-        const parts = message.serverContent?.modelTurn?.parts ?? [];
-        for (const part of parts) {
-          if (part.inlineData?.data) {
-            if (waitingForFirstResponse) {
-              waitingForFirstResponse = false;
-              console.log('[Gemini] First response received, mic now active');
+        if (sc && sc.modelTurn && sc.modelTurn.parts) {
+          for (const part of sc.modelTurn.parts) {
+            if (part.inlineData && part.inlineData.data) {
+              console.log('[Gemini] Audio chunk received');
+              sendToClient({
+                type: 'audio',
+                audio: part.inlineData.data,
+              });
             }
-            sendToClient({
-              type: 'audio',
-              data: part.inlineData.data,
-              mimeType: part.inlineData.mimeType ?? 'audio/pcm;rate=24000',
-            });
           }
         }
 
+        // Transcripción de entrada (voz del usuario)
+        if (sc && sc.inputTranscription) {
+          sendToClient({ type: 'transcript_input', text: sc.inputTranscription.text ?? '' });
+        }
+
+        // Transcripción de salida (voz del agente)
+        if (sc && sc.outputTranscription) {
+          sendToClient({ type: 'transcript_output', text: sc.outputTranscription.text ?? '' });
+        }
+
         // Señal de fin de turno (Gemini terminó de hablar)
-        if (message.serverContent?.turnComplete) {
+        if (sc && sc.turnComplete) {
           sendToClient({ type: 'turn_complete' });
         }
       },
@@ -168,37 +175,33 @@ export async function createGeminiBridge(
     },
   });
 
-  // Enviar el prompt inicial DESPUÉS de que session esté asignada
-  setTimeout(() => {
-    try {
-      session.sendClientContent({
-        turns: [{ role: 'user', parts: [{ text: 'Inicia la conversación ahora. Saluda al cliente.' }] }],
-        turnComplete: true,
-      });
-      console.log('[Gemini] Sent initial prompt to start conversation');
-    } catch (e) {
-      console.error('[Gemini] Error sending initial prompt:', e);
-    }
-  }, 100);
+  // Session asignada — envía el prompt inicial inmediatamente (full-duplex)
+  try {
+    session.sendClientContent({
+      turns: [{ role: 'user', parts: [{ text: 'Inicia la conversación ahora. Saluda al cliente.' }] }],
+      turnComplete: true,
+    });
+    console.log('[Gemini] Sent initial prompt to start conversation');
+  } catch (e) {
+    console.error('[Gemini] Error sending initial prompt:', e);
+  }
 
   // ── API pública del bridge ────────────────────────────────────────────────────
+  let micChunkCount = 0;
+
   return {
     /**
      * Reenvía un chunk de audio PCM (base64) a Gemini.
-     * El audio debe ser PCM 16-bit mono a la frecuencia indicada en agentConfig.inputSampleRate.
+     * Gemini maneja el VAD internamente; enviamos audio de forma continua.
      */
     sendAudio(base64Data: string): void {
       if (isClosed) return;
-      if (waitingForFirstResponse) {
-        console.log('[Gemini] Ignoring mic audio while waiting for first response');
-        return;
-      }
-      const sampleRate = agentConfig.inputSampleRate ?? 16000;
+      if (micChunkCount++ === 0) console.log('[Gemini] First mic chunk sent to Gemini');
       try {
         session.sendRealtimeInput({
           audio: {
             data: base64Data,
-            mimeType: `audio/pcm;rate=${sampleRate}`,
+            mimeType: 'audio/pcm;rate=16000',
           },
         });
       } catch (err) {
