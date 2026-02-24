@@ -6,39 +6,25 @@ import { config } from '../config';
 import { prisma } from '../lib/prisma';
 import type { AgentConfig, GeminiBridge, ServerMessage } from '../types';
 
-// ── Cliente Gemini (singleton por proceso) ──────────────────────────────────────
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
-
-// ── Modelo usado para Native Audio ─────────────────────────────────────────────
 const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 
-/**
- * Carga la configuración del agente desde la DB, incluyendo documentos de
- * conocimiento globales y propios del agente, y devuelve un AgentConfig listo
- * para usar en Gemini.
- */
 export async function loadAgentConfig(agentId: string): Promise<AgentConfig | null> {
   const agent = await prisma.agent.findUnique({
     where: { id: agentId, isActive: true },
   });
-
   if (!agent) return null;
 
-  // Obtener documentos de conocimiento: globales + propios del agente
   const docs = await prisma.knowledgeDoc.findMany({
-    where: {
-      OR: [{ isGlobal: true }, { agentId }],
-    },
+    where: { OR: [{ isGlobal: true }, { agentId }] },
   });
 
   let systemInstruction = agent.systemPrompt;
-
   if (docs.length > 0) {
     const docsText = docs
       .map((d: { filename: string; content: string }) => `[${d.filename}]\n${d.content}`)
       .join('\n---\n');
-    systemInstruction +=
-      `\n\n--- BASE DE CONOCIMIENTO ---\n${docsText}\n--- FIN BASE DE CONOCIMIENTO ---`;
+    systemInstruction += `\n\n--- BASE DE CONOCIMIENTO ---\n${docsText}\n--- FIN BASE DE CONOCIMIENTO ---`;
   }
 
   return {
@@ -59,108 +45,104 @@ export async function loadAgentConfig(agentId: string): Promise<AgentConfig | nu
   };
 }
 
-/**
- * Crea un puente bidireccional entre el cliente WebSocket y la Gemini Live API.
- *
- * Flujo de audio:
- *   Cliente (PCM 16 kHz base64) → sendAudio() → Gemini Live API
- *   Gemini Live API             → onmessage()  → Cliente (PCM base64)
- */
 export async function createGeminiBridge(
   clientWs: WebSocket,
   agentConfig: AgentConfig,
 ): Promise<GeminiBridge> {
   let isClosed = false;
+  let waitingForGreeting = true;
+  let micChunkCount = 0;
   let audioChunkCount = 0;
 
-  // Helper: envía un mensaje JSON al cliente si la conexión sigue abierta
   const sendToClient = (msg: ServerMessage): void => {
     if (clientWs.readyState === WebSocket.OPEN) {
       clientWs.send(JSON.stringify(msg));
     }
   };
 
-  // ── Construir system prompt (con sufijo de idioma si aplica) ─────────────────
+  // ── System prompt ───────────────────────────────────────────────────────────
   let systemPromptText = agentConfig.systemInstruction;
-  systemPromptText += '\n\nINSTRUCCIÓN CRÍTICA: Cuando la sesión inicie, saluda al cliente inmediatamente sin esperar a que hable primero. Comienza hablando tú.';
+  systemPromptText +=
+    '\n\nINSTRUCCIÓN CRÍTICA: Cuando la sesión inicie, saluda al cliente inmediatamente sin esperar a que hable primero. Comienza hablando tú.';
   if (agentConfig.language === 'es') {
     systemPromptText +=
       '\n\nIMPORTANTE: RESPONDE EN ESPAÑOL. DEBES RESPONDER INEQUÍVOCAMENTE EN ESPAÑOL.';
   }
-  console.log('[Gemini] System prompt (full):', systemPromptText);
+  console.log('[Gemini] System prompt length:', systemPromptText.length);
 
-  // ── Conectar con Gemini Live API ──────────────────────────────────────────────
+  // ── Config para Gemini Live API ─────────────────────────────────────────────
   const liveConfig = {
     responseModalities: [Modality.AUDIO],
     systemInstruction: { parts: [{ text: systemPromptText }] },
-    // Transcripciones
     inputAudioTranscription: {},
     outputAudioTranscription: {},
-    // Voz
     speechConfig: {
       voiceConfig: {
-        prebuiltVoiceConfig: {
-          voiceName: agentConfig.voiceName,
-        },
+        prebuiltVoiceConfig: { voiceName: agentConfig.voiceName },
       },
     },
-    // Parámetros de generación
     temperature: agentConfig.temperature,
     topP: agentConfig.topP,
     topK: agentConfig.topK,
     maxOutputTokens: agentConfig.maxOutputTokens,
   };
 
-  console.log('[Gemini] Full config:', JSON.stringify(liveConfig, null, 2));
+  console.log('[Gemini] Connecting | voice=' + agentConfig.voiceName);
 
+  // ── Conectar con Gemini Live API ────────────────────────────────────────────
   const session = await ai.live.connect({
     model: LIVE_MODEL,
     config: liveConfig,
     callbacks: {
       onopen(): void {
-        console.log('[Gemini] Session opened | time=' + Date.now());
-        console.log(`[Gemini] Session opened | agent=${agentConfig.id} voice=${agentConfig.voiceName}`);
+        console.log(
+          `[Gemini] Session opened | agent=${agentConfig.id} voice=${agentConfig.voiceName} time=${Date.now()}`,
+        );
         sendToClient({ type: 'session_started', agentId: agentConfig.id });
       },
 
       onmessage(message: LiveServerMessage): void {
         const sc = message.serverContent;
+        if (!sc) return;
 
-        // Interrupción del agente por el usuario (patrón oficial Google)
-        if (sc && sc.interrupted === true) {
-          console.log('[Gemini] Agent interrupted by user');
-          sendToClient({ type: 'interrupted' });
-          return;
-        }
-
-        // Audio generado por Gemini
-        if (sc && sc.modelTurn && sc.modelTurn.parts) {
+        // ── 1. AUDIO del modelo — procesar SIEMPRE, sin return ──────────
+        if (sc.modelTurn && sc.modelTurn.parts) {
           for (const part of sc.modelTurn.parts) {
             if (part.inlineData && part.inlineData.data) {
               audioChunkCount++;
-              if (audioChunkCount === 1) console.log('[Gemini] First audio chunk | time=' + Date.now());
-              if (audioChunkCount % 50 === 0) console.log('[Gemini] Audio chunks received:', audioChunkCount);
-              sendToClient({
-                type: 'audio',
-                audio: part.inlineData.data,
-              });
+              if (audioChunkCount === 1) {
+                console.log('[Gemini] >>> First audio chunk | time=' + Date.now());
+              } else if (audioChunkCount % 100 === 0) {
+                console.log('[Gemini] Audio chunks sent:', audioChunkCount);
+              }
+              sendToClient({ type: 'audio', audio: part.inlineData.data });
             }
           }
         }
 
-        // Transcripción de entrada (voz del usuario)
-        if (sc && sc.inputTranscription) {
-          sendToClient({ type: 'transcript_input', text: sc.inputTranscription.text ?? '' });
+        // ── 2. Interrupción — NO usar return, solo notificar ────────────
+        if (sc.interrupted === true) {
+          console.log('[Gemini] Agent interrupted by user');
+          sendToClient({ type: 'interrupted' });
         }
 
-        // Transcripción de salida (voz del agente)
-        if (sc && sc.outputTranscription) {
-          sendToClient({ type: 'transcript_output', text: sc.outputTranscription.text ?? '' });
+        // ── 3. Transcripción de salida (voz del agente) ─────────────────
+        if (sc.outputTranscription && sc.outputTranscription.text) {
+          sendToClient({ type: 'transcript_output', text: sc.outputTranscription.text });
         }
 
-        // Señal de fin de turno (Gemini terminó de hablar)
-        if (sc && sc.turnComplete) {
+        // ── 4. Transcripción de entrada (voz del usuario) ───────────────
+        if (sc.inputTranscription && sc.inputTranscription.text) {
+          sendToClient({ type: 'transcript_input', text: sc.inputTranscription.text });
+        }
+
+        // ── 5. Fin de turno ─────────────────────────────────────────────
+        if (sc.turnComplete) {
           sendToClient({ type: 'turn_complete' });
+          if (waitingForGreeting) {
+            waitingForGreeting = false;
+            console.log('[Gemini] Initial greeting complete, mic now active');
+          }
         }
       },
 
@@ -178,55 +160,37 @@ export async function createGeminiBridge(
     },
   });
 
-  // Trigger 1: Enviar texto para que Gemini responda inmediatamente
+  // ── Trigger: hacer que el agente hable primero ──────────────────────────────
   try {
     session.sendClientContent({
-      turns: [{ role: 'user', parts: [{ text: '.' }] }],
+      turns: [
+        {
+          role: 'user',
+          parts: [{ text: 'Inicia la conversación ahora. Saluda al cliente según tu flujo.' }],
+        },
+      ],
       turnComplete: true,
     });
-    console.log('[Gemini] Sent text trigger for initial greeting');
+    console.log('[Gemini] Sent initial prompt | time=' + Date.now());
   } catch (e) {
-    console.error('[Gemini] Error sending text trigger:', e);
+    console.error('[Gemini] Error sending initial prompt:', e);
   }
 
-  // Trigger 2: Enviar silencio para activar el canal de audio
-  try {
-    const silenceBuffer = Buffer.alloc(3200).toString('base64');
-    session.sendRealtimeInput({
-      audio: {
-        data: silenceBuffer,
-        mimeType: 'audio/pcm;rate=16000',
-      },
-    });
-    console.log('[Gemini] Sent silence buffer');
-  } catch (e) {
-    console.error('[Gemini] Error sending silence:', e);
-  }
-
-  // ── API pública del bridge ────────────────────────────────────────────────────
-  let micChunkCount = 0;
-
+  // ── API pública del bridge ──────────────────────────────────────────────────
   return {
-    /**
-     * Reenvía un chunk de audio PCM (base64) a Gemini.
-     * Gemini maneja el VAD internamente; enviamos audio de forma continua.
-     */
     sendAudio(base64Data: string): void {
       if (isClosed) return;
+      if (waitingForGreeting) return; // Bloquear mic hasta que termine el saludo
       if (micChunkCount++ === 0) console.log('[Gemini] First mic chunk sent to Gemini');
       try {
         session.sendRealtimeInput({
-          audio: {
-            data: base64Data,
-            mimeType: 'audio/pcm;rate=16000',
-          },
+          audio: { data: base64Data, mimeType: 'audio/pcm;rate=16000' },
         });
       } catch (err) {
         console.error('[Gemini] Error sending audio chunk:', err);
       }
     },
 
-    /** Cierra la sesión Gemini limpiamente. */
     close(): void {
       if (isClosed) return;
       isClosed = true;
