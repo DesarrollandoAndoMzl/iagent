@@ -71,6 +71,7 @@ export async function createGeminiBridge(
   agentConfig: AgentConfig,
 ): Promise<GeminiBridge> {
   let isClosed = false;
+  let audioChunkCount = 0;
 
   // Helper: envía un mensaje JSON al cliente si la conexión sigue abierta
   const sendToClient = (msg: ServerMessage): void => {
@@ -81,6 +82,7 @@ export async function createGeminiBridge(
 
   // ── Construir system prompt (con sufijo de idioma si aplica) ─────────────────
   let systemPromptText = agentConfig.systemInstruction;
+  systemPromptText += '\n\nINSTRUCCIÓN CRÍTICA: Cuando la sesión inicie, saluda al cliente inmediatamente sin esperar a que hable primero. Comienza hablando tú.';
   if (agentConfig.language === 'es') {
     systemPromptText +=
       '\n\nIMPORTANTE: RESPONDE EN ESPAÑOL. DEBES RESPONDER INEQUÍVOCAMENTE EN ESPAÑOL.';
@@ -136,7 +138,7 @@ export async function createGeminiBridge(
         if (sc && sc.modelTurn && sc.modelTurn.parts) {
           for (const part of sc.modelTurn.parts) {
             if (part.inlineData && part.inlineData.data) {
-              console.log('[Gemini] Audio chunk received');
+              if (audioChunkCount++ % 50 === 0) console.log('[Gemini] Audio chunks received:', audioChunkCount);
               sendToClient({
                 type: 'audio',
                 audio: part.inlineData.data,
@@ -175,15 +177,18 @@ export async function createGeminiBridge(
     },
   });
 
-  // Session asignada — envía el prompt inicial inmediatamente (full-duplex)
+  // Enviar silencio para activar la sesión y que Gemini empiece a hablar
   try {
-    session.sendClientContent({
-      turns: [{ role: 'user', parts: [{ text: 'Inicia la conversación ahora. Saluda al cliente.' }] }],
-      turnComplete: true,
+    const silenceBuffer = Buffer.alloc(3200).toString('base64'); // 100ms de silencio PCM 16kHz
+    session.sendRealtimeInput({
+      audio: {
+        data: silenceBuffer,
+        mimeType: 'audio/pcm;rate=16000',
+      },
     });
-    console.log('[Gemini] Sent initial prompt to start conversation');
+    console.log('[Gemini] Sent silence buffer to trigger initial greeting');
   } catch (e) {
-    console.error('[Gemini] Error sending initial prompt:', e);
+    console.error('[Gemini] Error sending silence buffer:', e);
   }
 
   // ── API pública del bridge ────────────────────────────────────────────────────
