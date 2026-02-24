@@ -120,8 +120,15 @@ export async function createGeminiBridge(
           `[Gemini] Session opened | agent=${agentConfig.id} voice=${agentConfig.voiceName}`,
         );
         sendToClient({ type: 'session_started', agentId: agentConfig.id });
-        session.send({ text: 'Inicia la conversación ahora. Saluda al cliente.' });
-        console.log('[Gemini] Sent initial prompt to start conversation');
+        try {
+          session.sendClientContent({
+            turns: [{ role: 'user', parts: [{ text: 'Inicia la conversación ahora. Saluda al cliente.' }] }],
+            turnComplete: true,
+          });
+          console.log('[Gemini] Sent initial prompt to start conversation');
+        } catch (e) {
+          console.error('[Gemini] Error sending initial prompt:', e);
+        }
       },
 
       onmessage(message: LiveServerMessage): void {
