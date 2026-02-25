@@ -54,6 +54,12 @@ export async function createGeminiBridge(
   let micChunkCount = 0;
   let audioChunkCount = 0;
 
+  // ── Echo suppression state ────────────────────────────────────────────────
+  let agentSpeaking = false;          // true mientras el agente está emitiendo audio
+  let lastAudioChunkTime = 0;         // timestamp del último chunk de audio enviado al client
+  const ECHO_GRACE_MS = 600;          // ms de gracia después del último audio para reactivar mic
+  let micSuppressedChunks = 0;        // contador de chunks descartados (debug)
+
   const sendToClient = (msg: ServerMessage): void => {
     if (clientWs.readyState === WebSocket.OPEN) {
       clientWs.send(JSON.stringify(msg));
@@ -110,6 +116,11 @@ export async function createGeminiBridge(
           for (const part of sc.modelTurn.parts) {
             if (part.inlineData && part.inlineData.data) {
               audioChunkCount++;
+
+              // ── Echo suppression: marcar que el agente está hablando ──
+              agentSpeaking = true;
+              lastAudioChunkTime = Date.now();
+
               if (audioChunkCount === 1) {
                 console.log('[Gemini] >>> First audio chunk | time=' + Date.now());
               } else if (audioChunkCount % 100 === 0) {
@@ -123,6 +134,7 @@ export async function createGeminiBridge(
         // ── 2. Interrupción — NO usar return, solo notificar ────────────
         if (sc.interrupted === true) {
           console.log('[Gemini] Agent interrupted by user');
+          agentSpeaking = false; // Ya no habla, fue interrumpido
           sendToClient({ type: 'interrupted' });
         }
 
@@ -138,6 +150,7 @@ export async function createGeminiBridge(
 
         // ── 5. Fin de turno ─────────────────────────────────────────────
         if (sc.turnComplete) {
+          agentSpeaking = false; // Turno completado, agente dejó de hablar
           sendToClient({ type: 'turn_complete' });
           if (waitingForGreeting) {
             waitingForGreeting = false;
@@ -181,6 +194,28 @@ export async function createGeminiBridge(
     sendAudio(base64Data: string): void {
       if (isClosed) return;
       if (waitingForGreeting) return; // Bloquear mic hasta que termine el saludo
+
+      // ── Echo suppression: descartar audio del mic mientras agente habla ──
+      const now = Date.now();
+      const timeSinceLastAudio = now - lastAudioChunkTime;
+
+      if (agentSpeaking || timeSinceLastAudio < ECHO_GRACE_MS) {
+        // Descartar chunk — es probable eco del speaker
+        micSuppressedChunks++;
+        if (micSuppressedChunks === 1) {
+          console.log('[Gemini] Mic suppressed (echo) — agent is speaking');
+        } else if (micSuppressedChunks % 50 === 0) {
+          console.log(`[Gemini] Mic suppressed chunks: ${micSuppressedChunks}`);
+        }
+        return;
+      }
+
+      // Si veníamos suprimiendo, loguear que se reactivó
+      if (micSuppressedChunks > 0) {
+        console.log(`[Gemini] Mic reactivated after ${micSuppressedChunks} suppressed chunks`);
+        micSuppressedChunks = 0;
+      }
+
       if (micChunkCount++ === 0) console.log('[Gemini] First mic chunk sent to Gemini');
       try {
         session.sendRealtimeInput({
