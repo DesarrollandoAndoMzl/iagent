@@ -88,7 +88,14 @@ export async function createGeminiBridge(
   console.log('[Gemini] System prompt length:', systemPromptText.length);
 
   // ── Config para Gemini Live API ─────────────────────────────────────────────
-  // FIX: Pasar TODOS los parámetros que antes se ignoraban
+  //
+  // NOTA: enableAffectiveDialog y proactiveAudio requieren api_version="v1alpha"
+  // que el SDK de Node.js no soporta correctamente todavía.
+  // El SDK serializa estos campos dentro de generationConfig y Gemini los rechaza.
+  // Se omiten hasta que Google lo arregle. Ver:
+  // https://github.com/googleapis/python-genai/issues/865
+  // https://discuss.ai.google.dev/t/84326
+  //
   const liveConfig: Record<string, unknown> = {
     responseModalities: [Modality.AUDIO],
     systemInstruction: { parts: [{ text: systemPromptText }] },
@@ -113,13 +120,7 @@ export async function createGeminiBridge(
       thinkingBudget: agentConfig.thinkingBudget ?? 0,
     },
 
-    // FIX 2: Affective Dialog — respuestas emocionalmente conscientes
-    enableAffectiveDialog: agentConfig.enableAffectiveDialog ?? true,
-
-    // FIX 3: Proactive Audio — agente puede responder sin esperar turno completo
-    proactiveAudio: agentConfig.enableProactiveAudio ?? true,
-
-    // FIX 4: VAD Sensitivity — cuánto ruido necesita para detectar voz
+    // FIX 2: VAD Sensitivity
     realtimeInputConfig: {
       automaticActivityDetection: {
         disabled: false,
@@ -136,8 +137,8 @@ export async function createGeminiBridge(
   console.log('[Gemini] Config:', JSON.stringify({
     voice: agentConfig.voiceName,
     thinkingBudget: agentConfig.thinkingBudget,
-    affectiveDialog: agentConfig.enableAffectiveDialog,
-    proactiveAudio: agentConfig.enableProactiveAudio,
+    affectiveDialog: agentConfig.enableAffectiveDialog + ' (not sent - SDK bug)',
+    proactiveAudio: agentConfig.enableProactiveAudio + ' (not sent - SDK bug)',
     vadSensitivity: agentConfig.vadSensitivity,
     temperature: agentConfig.temperature,
     promptLength: systemPromptText.length,
