@@ -4,7 +4,7 @@ import WebSocket from 'ws';
 
 import { config } from '../config';
 import { prisma } from '../lib/prisma';
-import type { AgentConfig, GeminiBridge, ServerMessage } from '../types';
+import type { AgentConfig, AudioStats, GeminiBridge, ServerMessage } from '../types';
 
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
@@ -54,11 +54,10 @@ export async function createGeminiBridge(
   let micChunkCount = 0;
   let audioChunkCount = 0;
 
-  // ── Echo suppression state ────────────────────────────────────────────────
-  let agentSpeaking = false;          // true mientras el agente está emitiendo audio
-  let lastAudioChunkTime = 0;         // timestamp del último chunk de audio enviado al client
-  const ECHO_GRACE_MS = 600;          // ms de gracia después del último audio para reactivar mic
-  let micSuppressedChunks = 0;        // contador de chunks descartados (debug)
+  // ── Contadores de bytes para cálculo de costo ──────────────────────────────
+  // base64.length * 0.75 ≈ bytes de PCM decodificado
+  let inputBytes = 0;   // audio del mic realmente enviado a Gemini
+  let outputBytes = 0;  // audio del agente recibido desde Gemini
 
   const sendToClient = (msg: ServerMessage): void => {
     if (clientWs.readyState === WebSocket.OPEN) {
@@ -116,10 +115,7 @@ export async function createGeminiBridge(
           for (const part of sc.modelTurn.parts) {
             if (part.inlineData && part.inlineData.data) {
               audioChunkCount++;
-
-              // ── Echo suppression: marcar que el agente está hablando ──
-              agentSpeaking = true;
-              lastAudioChunkTime = Date.now();
+              outputBytes += Math.floor(part.inlineData.data.length * 0.75);
 
               if (audioChunkCount === 1) {
                 console.log('[Gemini] >>> First audio chunk | time=' + Date.now());
@@ -134,7 +130,6 @@ export async function createGeminiBridge(
         // ── 2. Interrupción — NO usar return, solo notificar ────────────
         if (sc.interrupted === true) {
           console.log('[Gemini] Agent interrupted by user');
-          agentSpeaking = false; // Ya no habla, fue interrumpido
           sendToClient({ type: 'interrupted' });
         }
 
@@ -150,7 +145,6 @@ export async function createGeminiBridge(
 
         // ── 5. Fin de turno ─────────────────────────────────────────────
         if (sc.turnComplete) {
-          agentSpeaking = false; // Turno completado, agente dejó de hablar
           sendToClient({ type: 'turn_complete' });
           if (waitingForGreeting) {
             waitingForGreeting = false;
@@ -195,27 +189,7 @@ export async function createGeminiBridge(
       if (isClosed) return;
       if (waitingForGreeting) return; // Bloquear mic hasta que termine el saludo
 
-      // ── Echo suppression: descartar audio del mic mientras agente habla ──
-      const now = Date.now();
-      const timeSinceLastAudio = now - lastAudioChunkTime;
-
-      if (agentSpeaking || timeSinceLastAudio < ECHO_GRACE_MS) {
-        // Descartar chunk — es probable eco del speaker
-        micSuppressedChunks++;
-        if (micSuppressedChunks === 1) {
-          console.log('[Gemini] Mic suppressed (echo) — agent is speaking');
-        } else if (micSuppressedChunks % 50 === 0) {
-          console.log(`[Gemini] Mic suppressed chunks: ${micSuppressedChunks}`);
-        }
-        return;
-      }
-
-      // Si veníamos suprimiendo, loguear que se reactivó
-      if (micSuppressedChunks > 0) {
-        console.log(`[Gemini] Mic reactivated after ${micSuppressedChunks} suppressed chunks`);
-        micSuppressedChunks = 0;
-      }
-
+      inputBytes += Math.floor(base64Data.length * 0.75);
       if (micChunkCount++ === 0) console.log('[Gemini] First mic chunk sent to Gemini');
       try {
         session.sendRealtimeInput({
@@ -234,6 +208,10 @@ export async function createGeminiBridge(
       } catch (err) {
         console.error('[Gemini] Error closing session:', err);
       }
+    },
+
+    getStats(): AudioStats {
+      return { inputBytes, outputBytes };
     },
   };
 }

@@ -89,7 +89,15 @@ export interface AgentConfig {
 
 // ── Estado de sesión WebSocket ──────────────────────────────────────────────────
 
+export interface AudioStats {
+  /** Bytes de PCM de entrada realmente enviados a Gemini (excluye audio suprimido) */
+  inputBytes: number;
+  /** Bytes de PCM de salida recibidos desde Gemini */
+  outputBytes: number;
+}
+
 export interface GeminiBridge {
   sendAudio: (base64Data: string) => void;
   close: () => void;
+  getStats: () => AudioStats;
 }

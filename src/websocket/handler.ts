@@ -5,8 +5,12 @@ import { loadAgentConfig, createGeminiBridge } from './gemini-bridge';
 import { prisma } from '../lib/prisma';
 import type { ClientMessage, GeminiBridge } from '../types';
 
-// Costo estimado por minuto de audio (USD)
-const COST_PER_MINUTE = 0.075;
+// Gemini Live API pricing (USD por minuto de audio)
+const INPUT_COST_PER_MIN = 0.60;   // audio del usuario → Gemini
+const OUTPUT_COST_PER_MIN = 2.40;  // audio de Gemini → usuario
+// Tasas de muestreo del PCM
+const INPUT_BYTES_PER_SEC = 16000 * 2;  // 16 kHz, 16-bit, mono
+const OUTPUT_BYTES_PER_SEC = 24000 * 2; // 24 kHz, 16-bit, mono (Gemini Live output)
 
 interface TranscriptionEntry {
   role: 'user' | 'assistant';
@@ -86,11 +90,12 @@ export function handleWebSocketConnection(
 
         try {
           // Crear registro CallSession en DB
+          const startedAt = new Date();
           const callSession = await prisma.callSession.create({
-            data: { agentId, status: 'active' },
+            data: { agentId, status: 'active', startedAt },
           });
           callSessionId = callSession.id;
-          sessionStartTime = new Date();
+          sessionStartTime = startedAt; // mismo timestamp que el guardado en DB
 
           console.log(`[WS] Starting session | agent=${agentId} session=${callSessionId}`);
           bridge = await createGeminiBridge(ws, agentConfig);
@@ -144,7 +149,12 @@ export function handleWebSocketConnection(
     if (bridge) {
       await closeSession(bridge, callSessionId, sessionStartTime, transcription);
       bridge = null;
+    } else if (callSessionId) {
+      // Race condition: WS cerró mientras createGeminiBridge estaba pendiente
+      await finalizeOrphanSession(callSessionId, sessionStartTime);
     }
+    callSessionId = null;
+    sessionStartTime = null;
   });
 
   // ── Error de transporte ─────────────────────────────────────────────────────
@@ -153,11 +163,36 @@ export function handleWebSocketConnection(
     if (bridge) {
       await closeSession(bridge, callSessionId, sessionStartTime, transcription, 'error');
       bridge = null;
+    } else if (callSessionId) {
+      await finalizeOrphanSession(callSessionId, sessionStartTime, 'error');
     }
+    callSessionId = null;
+    sessionStartTime = null;
   });
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
+
+// Cierra una sesión que nunca llegó a tener bridge (race condition al conectar)
+async function finalizeOrphanSession(
+  callSessionId: string,
+  startTime: Date | null,
+  status: 'completed' | 'error' = 'error',
+): Promise<void> {
+  const endedAt = new Date();
+  const durationSeconds = startTime
+    ? Math.round((endedAt.getTime() - startTime.getTime()) / 1000)
+    : 0;
+  try {
+    await prisma.callSession.update({
+      where: { id: callSessionId },
+      data: { endedAt, durationSeconds, estimatedCost: 0, status },
+    });
+    console.log(`[WS] Orphan session ${callSessionId} finalized | duration=${durationSeconds}s`);
+  } catch (err) {
+    console.error('[WS] Failed to finalize orphan session:', err);
+  }
+}
 
 async function closeSession(
   bridge: GeminiBridge,
@@ -173,7 +208,13 @@ async function closeSession(
   const endedAt = new Date();
   const durationSeconds =
     startTime ? Math.round((endedAt.getTime() - startTime.getTime()) / 1000) : 0;
-  const estimatedCost = Math.round((durationSeconds / 60) * COST_PER_MINUTE * 10000) / 10000;
+
+  const stats = bridge.getStats();
+  const inputMinutes = stats.inputBytes / INPUT_BYTES_PER_SEC / 60;
+  const outputMinutes = stats.outputBytes / OUTPUT_BYTES_PER_SEC / 60;
+  const estimatedCost =
+    Math.round((inputMinutes * INPUT_COST_PER_MIN + outputMinutes * OUTPUT_COST_PER_MIN) * 10000) /
+    10000;
 
   try {
     await prisma.callSession.update({
@@ -187,7 +228,9 @@ async function closeSession(
       },
     });
     console.log(
-      `[WS] Session ${callSessionId} saved | duration=${durationSeconds}s cost=$${estimatedCost}`,
+      `[WS] Session ${callSessionId} saved | duration=${durationSeconds}s` +
+        ` input=${inputMinutes.toFixed(2)}min output=${outputMinutes.toFixed(2)}min` +
+        ` cost=$${estimatedCost}`,
     );
   } catch (err) {
     console.error('[WS] Failed to update CallSession:', err);
