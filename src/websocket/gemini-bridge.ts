@@ -9,6 +9,9 @@ import type { AgentConfig, AudioStats, GeminiBridge, ServerMessage } from '../ty
 const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
 const LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 
+// ── Límite de knowledge en system prompt (~4K tokens ≈ 16K chars) ─────────────
+const MAX_KNOWLEDGE_CHARS = 16_000;
+
 export async function loadAgentConfig(agentId: string): Promise<AgentConfig | null> {
   const agent = await prisma.agent.findUnique({
     where: { id: agentId, isActive: true },
@@ -20,10 +23,20 @@ export async function loadAgentConfig(agentId: string): Promise<AgentConfig | nu
   });
 
   let systemInstruction = agent.systemPrompt;
+
   if (docs.length > 0) {
-    const docsText = docs
+    let docsText = docs
       .map((d: { filename: string; content: string }) => `[${d.filename}]\n${d.content}`)
       .join('\n---\n');
+
+    // Truncar knowledge si excede el límite para proteger latencia
+    if (docsText.length > MAX_KNOWLEDGE_CHARS) {
+      console.warn(
+        `[AgentConfig] Knowledge truncated: ${docsText.length} → ${MAX_KNOWLEDGE_CHARS} chars`
+      );
+      docsText = docsText.slice(0, MAX_KNOWLEDGE_CHARS) + '\n[... contenido truncado por límite]';
+    }
+
     systemInstruction += `\n\n--- BASE DE CONOCIMIENTO ---\n${docsText}\n--- FIN BASE DE CONOCIMIENTO ---`;
   }
 
@@ -55,9 +68,8 @@ export async function createGeminiBridge(
   let audioChunkCount = 0;
 
   // ── Contadores de bytes para cálculo de costo ──────────────────────────────
-  // base64.length * 0.75 ≈ bytes de PCM decodificado
-  let inputBytes = 0;   // audio del mic realmente enviado a Gemini
-  let outputBytes = 0;  // audio del agente recibido desde Gemini
+  let inputBytes = 0;
+  let outputBytes = 0;
 
   const sendToClient = (msg: ServerMessage): void => {
     if (clientWs.readyState === WebSocket.OPEN) {
@@ -76,23 +88,60 @@ export async function createGeminiBridge(
   console.log('[Gemini] System prompt length:', systemPromptText.length);
 
   // ── Config para Gemini Live API ─────────────────────────────────────────────
-  const liveConfig = {
+  // FIX: Pasar TODOS los parámetros que antes se ignoraban
+  const liveConfig: Record<string, unknown> = {
     responseModalities: [Modality.AUDIO],
     systemInstruction: { parts: [{ text: systemPromptText }] },
     inputAudioTranscription: {},
     outputAudioTranscription: {},
+
+    // Voice
     speechConfig: {
       voiceConfig: {
         prebuiltVoiceConfig: { voiceName: agentConfig.voiceName },
       },
     },
+
+    // Generation params
     temperature: agentConfig.temperature,
     topP: agentConfig.topP,
     topK: agentConfig.topK,
     maxOutputTokens: agentConfig.maxOutputTokens,
+
+    // FIX 1: Thinking budget — 0 = sin razonamiento = respuesta inmediata
+    thinkingConfig: {
+      thinkingBudget: agentConfig.thinkingBudget ?? 0,
+    },
+
+    // FIX 2: Affective Dialog — respuestas emocionalmente conscientes
+    enableAffectiveDialog: agentConfig.enableAffectiveDialog ?? true,
+
+    // FIX 3: Proactive Audio — agente puede responder sin esperar turno completo
+    proactiveAudio: agentConfig.enableProactiveAudio ?? true,
+
+    // FIX 4: VAD Sensitivity — cuánto ruido necesita para detectar voz
+    realtimeInputConfig: {
+      automaticActivityDetection: {
+        disabled: false,
+        ...(agentConfig.vadSensitivity && agentConfig.vadSensitivity !== 'default'
+          ? { startOfSpeechSensitivity: agentConfig.vadSensitivity.toUpperCase() }
+          : {}),
+        ...(agentConfig.vadSensitivity && agentConfig.vadSensitivity !== 'default'
+          ? { endOfSpeechSensitivity: agentConfig.vadSensitivity.toUpperCase() }
+          : {}),
+      },
+    },
   };
 
-  console.log('[Gemini] Connecting | voice=' + agentConfig.voiceName);
+  console.log('[Gemini] Config:', JSON.stringify({
+    voice: agentConfig.voiceName,
+    thinkingBudget: agentConfig.thinkingBudget,
+    affectiveDialog: agentConfig.enableAffectiveDialog,
+    proactiveAudio: agentConfig.enableProactiveAudio,
+    vadSensitivity: agentConfig.vadSensitivity,
+    temperature: agentConfig.temperature,
+    promptLength: systemPromptText.length,
+  }));
 
   // ── Conectar con Gemini Live API ────────────────────────────────────────────
   const session = await ai.live.connect({
@@ -110,7 +159,7 @@ export async function createGeminiBridge(
         const sc = message.serverContent;
         if (!sc) return;
 
-        // ── 1. AUDIO del modelo — procesar SIEMPRE, sin return ──────────
+        // ── 1. AUDIO del modelo ─────────────────────────────────────────
         if (sc.modelTurn && sc.modelTurn.parts) {
           for (const part of sc.modelTurn.parts) {
             if (part.inlineData && part.inlineData.data) {
@@ -127,7 +176,7 @@ export async function createGeminiBridge(
           }
         }
 
-        // ── 2. Interrupción — NO usar return, solo notificar ────────────
+        // ── 2. Interrupción ─────────────────────────────────────────────
         if (sc.interrupted === true) {
           console.log('[Gemini] Agent interrupted by user');
           sendToClient({ type: 'interrupted' });
@@ -187,7 +236,7 @@ export async function createGeminiBridge(
   return {
     sendAudio(base64Data: string): void {
       if (isClosed) return;
-      if (waitingForGreeting) return; // Bloquear mic hasta que termine el saludo
+      if (waitingForGreeting) return;
 
       inputBytes += Math.floor(base64Data.length * 0.75);
       if (micChunkCount++ === 0) console.log('[Gemini] First mic chunk sent to Gemini');
