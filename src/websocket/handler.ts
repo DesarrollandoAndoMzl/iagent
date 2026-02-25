@@ -5,9 +5,14 @@ import { loadAgentConfig, createGeminiBridge } from './gemini-bridge';
 import { prisma } from '../lib/prisma';
 import type { ClientMessage, GeminiBridge } from '../types';
 
-// Gemini Live API pricing (USD por minuto de audio)
-const INPUT_COST_PER_MIN = 0.60;   // audio del usuario → Gemini
-const OUTPUT_COST_PER_MIN = 2.40;  // audio de Gemini → usuario
+// Gemini Live API pricing — gemini-2.5-flash-native-audio
+// Fuente: https://ai.google.dev/gemini-api/docs/pricing
+// 25 tokens/segundo de audio → 1,500 tokens/minuto
+// Audio input:  $3.00  / 1M tokens → $0.0045/min
+// Audio output: $12.00 / 1M tokens → $0.018/min
+// Nota: gratis durante el período de preview
+const INPUT_COST_PER_MIN = 0.0045;
+const OUTPUT_COST_PER_MIN = 0.018;
 // Tasas de muestreo del PCM
 const INPUT_BYTES_PER_SEC = 16000 * 2;  // 16 kHz, 16-bit, mono
 const OUTPUT_BYTES_PER_SEC = 24000 * 2; // 24 kHz, 16-bit, mono (Gemini Live output)

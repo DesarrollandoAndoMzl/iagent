@@ -15,7 +15,18 @@
       "Bash(DATABASE_URL=\"postgresql://x:x@localhost:5432/x\" npx prisma generate:*)",
       "Bash(git -C \"D:/DESARROLLANDO/voice-agent-backend\" log --oneline -n 15)",
       "Bash(grep:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(cd D:/DESARROLLANDO/voice-agent-backend && npx prisma db execute --stdin <<'EOF'\nDELETE FROM \"CallSession\";\nEOF)",
+      "Bash(cd D:/DESARROLLANDO/voice-agent-backend && npx prisma db execute --schema=prisma/schema.prisma --stdin <<'EOF'\nDELETE FROM \"CallSession\";\nEOF)",
+      "Bash(echo DATABASE_URL=$DATABASE_URL:*)",
+      "WebSearch",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:vapi.ai)",
+      "WebFetch(domain:platform.openai.com)",
+      "WebFetch(domain:docs.bland.ai)",
+      "WebFetch(domain:www.retellai.com)",
+      "WebFetch(domain:elevenlabs.io)",
+      "Bash(echo exit: $?:*)"
     ]
   }
 }
