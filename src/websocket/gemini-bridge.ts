@@ -99,7 +99,7 @@ export async function createGeminiBridge(
   const liveConfig: Record<string, unknown> = {
     responseModalities: [Modality.AUDIO],
     systemInstruction: { parts: [{ text: systemPromptText }] },
-    inputAudioTranscription: {},
+    inputAudioTranscription: { languageCode: "es-419" },
     outputAudioTranscription: {},
 
     // Voice
