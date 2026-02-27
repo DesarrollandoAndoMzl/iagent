@@ -121,14 +121,16 @@ export async function createGeminiBridge(
     },
 
     // FIX 2: VAD Sensitivity
+    // Gemini expects full enum values: START_SENSITIVITY_LOW / END_SENSITIVITY_LOW
+    // NOT just "LOW" or "low"
     realtimeInputConfig: {
       automaticActivityDetection: {
         disabled: false,
         ...(agentConfig.vadSensitivity && agentConfig.vadSensitivity !== 'default'
-          ? { startOfSpeechSensitivity: agentConfig.vadSensitivity.toUpperCase() }
-          : {}),
-        ...(agentConfig.vadSensitivity && agentConfig.vadSensitivity !== 'default'
-          ? { endOfSpeechSensitivity: agentConfig.vadSensitivity.toUpperCase() }
+          ? {
+              startOfSpeechSensitivity: `START_SENSITIVITY_${agentConfig.vadSensitivity.toUpperCase()}`,
+              endOfSpeechSensitivity: `END_SENSITIVITY_${agentConfig.vadSensitivity.toUpperCase()}`,
+            }
           : {}),
       },
     },
